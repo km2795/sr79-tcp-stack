@@ -4,9 +4,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net/netip"
+	"sr79-tcp-stack/logger"
 )
 
-type Packet struct {
+type PacketIPv4 struct {
 	Version     uint8      // (4): Format of the Internet Header (4)
 	IHL         uint8      // (4): Internet Header Length
 	TOS         uint8      // (8): Quality of Service
@@ -22,37 +23,21 @@ type Packet struct {
 	Payload     []byte     // Data.
 }
 
-type ProtocolType string
-
-const (
-	ProtoICMP ProtocolType = "ICMP"
-	ProtoTCP  ProtocolType = "TCP"
-	ProtoUDP  ProtocolType = "UDP"
-)
-
-func ParsePacket(data []byte) (*Packet, error) {
-	if len(data) < 20 {
-		return nil, fmt.Errorf("L3: Invalid datagram size (< 20): %d", len(data))
-	}
-
-	version := data[0] >> 4 // Only the first 4 bits are required.
-
-	// Version should be 4 or 6 (else discard).
-	if version != 4 && version != 6 {
-		return nil, fmt.Errorf("L3: Invalid IP datagram version: %d", version)
-	}
+func ParsePacketIPv4(data []byte) *PacketIPv4 {
+	version := data[0] >> 4
 
 	ihl := data[0] & 0x0F     // Only the last 4 bits of the first byte of the header required.
 	headerLen := int(ihl) * 4 // Size of Header Length * 4 (for each byte)
 
 	if ihl < 5 || len(data) < headerLen {
-		return nil, fmt.Errorf("L3: Invalid IHL (< 5): %d", ihl)
+		logger.Log(logger.ERROR, fmt.Sprintf("L3: Invalid IHL (< 5): %d", ihl))
+		return nil
 	}
 
 	src := netip.AddrFrom4([4]byte(data[12:16]))
 	dst := netip.AddrFrom4([4]byte(data[16:20]))
 
-	packet := &Packet{
+	packet := &PacketIPv4{
 		Version:     version,
 		IHL:         ihl,
 		TOS:         data[1],
@@ -68,11 +53,10 @@ func ParsePacket(data []byte) (*Packet, error) {
 		Payload:     data[20:],
 	}
 
-	return packet, nil
+	return packet
 }
 
-// Checksum
-// 32 bit variable is used to ensure that overflow is
+// Checksum: 32 bit variable is used to ensure that overflow is
 // tackled properly.
 func Checksum(data []byte) uint16 {
 	var sum uint32
