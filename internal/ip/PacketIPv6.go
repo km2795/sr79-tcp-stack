@@ -17,22 +17,20 @@ type PacketIPv6 struct {
 	Payload       []byte
 }
 
-func ParsePacketIPv6(data []byte) *PacketIPv6 {
+func ParsePacketIPv6(data []byte, packet *PacketIPv6) *PacketIPv6 {
 	if len(data) < 40 {
 		return nil // Invalid IPv6 packet
 	}
 
-	packet := &PacketIPv6{
-		Version:       data[0] >> 4,
-		TrafficClass:  ((data[0] & 0x0F) << 4) | (data[1] >> 4),
-		FlowLabel:     binary.BigEndian.Uint32(data[1:5]) & 0x000FFFFF,
-		PayloadLength: binary.BigEndian.Uint16(data[4:6]),      // Note: bytes 4-5, not 6-8
-		NextHeader:    data[6],                                 // Byte 6, not 8
-		HopLimit:      data[7],                                 // Byte 7, not 9
-		Source:        netip.AddrFrom16([16]byte(data[8:24])),  // Bytes 8-23
-		Destination:   netip.AddrFrom16([16]byte(data[24:40])), // Bytes 24-39
-		Payload:       data[40:],                               // Start at byte 40
-	}
+	packet.Version = data[0] >> 4
+	packet.TrafficClass = ((data[0] & 0x0F) << 4) | (data[1] >> 4)
+	packet.FlowLabel = binary.BigEndian.Uint32(data[1:5]) & 0x000FFFFF
+	packet.PayloadLength = binary.BigEndian.Uint16(data[4:6])    // Note: bytes 4-5, not 6-8
+	packet.NextHeader = data[6]                                  // Byte 6, not 8
+	packet.HopLimit = data[7]                                    // Byte 7, not 9
+	packet.Source = netip.AddrFrom16([16]byte(data[8:24]))       // Bytes 8-23
+	packet.Destination = netip.AddrFrom16([16]byte(data[24:40])) // Bytes 24-39
+	packet.Payload = data[40:]                                   // Start at byte 40
 
 	return packet
 }
