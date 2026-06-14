@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
+	"os"
 	"os/exec"
 
 	"sr79-tcp-stack/internal/driver"
@@ -11,39 +12,48 @@ import (
 	"sr79-tcp-stack/logger"
 )
 
-func main() {
-	logger.StartLogger()
-	tap, err := driver.OpenTAP("tap0")
-
+// setupTAPInterface configures the interface.
+func setupTAPInterface(tapName string) (*driver.TAP, error) {
+	tap, err := driver.OpenTAP(tapName)
 	if err != nil {
-		logger.Log(logger.FATAL, fmt.Sprintf("Failed to open TAP: %v", err))
-		fmt.Println("Failed to open TAP device. Exiting...")
-		return
+		return nil, fmt.Errorf("failed to open TAP: %w", err)
 	}
 
-	defer tap.Close()
-
-	logger.Log(logger.INFO, fmt.Sprintf("TAP Interface (%s) Setup Successfully", tap.Name))
-
-	var _err error
-
 	// Initialize the Interface.
-	_err = exec.Command("ip", "link", "set", tap.Name, "up").Run()
-	if _err != nil {
-		logger.Log(logger.FATAL, fmt.Sprintf("Setup Error: %v", _err))
-		fmt.Println("Error Initializing TAP device. Exiting...")
-		return
+	if err := exec.Command("ip", "link", "set", tap.Name, "up").Run(); err != nil {
+		tap.Close()
+		return nil, fmt.Errorf("failed to bring up link: %w", err)
 	}
 
 	// Assign the Initialized Interface an IP.
-	_err = exec.Command("ip", "addr", "add", "10.0.0.1/24", "dev", tap.Name).Run()
-	if _err != nil {
-		logger.Log(logger.FATAL, fmt.Sprintf("Setup Error: %v", _err))
-		fmt.Println("Error Setting up TAP Device. Exiting...")
+	if err := exec.Command("ip", "addr", "add", "10.0.0.1/24", "dev", tap.Name).Run(); err != nil {
+		tap.Close()
+		return nil, fmt.Errorf("failed to assign IP: %w", err)
+	}
+
+	logger.Log(logger.INFO, fmt.Sprintf("TAP Interface (%s) Setup Successfully", tap.Name))
+	return tap, nil
+}
+
+func main() {
+	logger.StartLogger()
+	defer logger.StopLogger()
+
+	// Setup the interface
+	tap, err := setupTAPInterface("tap0")
+	if err != nil {
+		logger.Log(logger.FATAL, fmt.Sprintf("Setup failed.: %v", err))
+		fmt.Fprintf(os.Stderr, "Initialization Error: %v", err)
 		return
 	}
 
-	buf := make([]byte, 1500)
+	// Cleanup.
+	defer tap.Close()
+
+	// Buffer for packet.
+	buf := make([]byte, 2048)
+	var packet ip.PacketIPv4
+
 	for {
 		n, err := tap.Read(buf)
 		if err != nil {
@@ -53,21 +63,16 @@ func main() {
 
 		frame, err := ethernet.ParseFrame(buf[:n])
 		if err != nil {
-			logger.Log(logger.FATAL, fmt.Sprintf("%v\n", err))
+			logger.Log(logger.ERROR, fmt.Sprintf("%v\n", err))
 			continue
 		}
 
 		switch frame.Type {
 		// IPv4 datagrams.
 		case uint16(ethernet.FrameIPv4):
-			packet := ip.ParsePacketIPv4(frame.Payload)
+			packet := ip.ParsePacketIPv4(frame.Payload, &packet)
 
 			if packet == nil {
-				continue
-			}
-
-			// Skip if not true.
-			if ip.Checksum(frame.Payload[0:packet.IHL*4]) != 0 {
 				continue
 			}
 
@@ -98,6 +103,4 @@ func main() {
 		}
 
 	}
-
-	logger.StopLogger()
 }
