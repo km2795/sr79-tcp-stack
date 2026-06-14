@@ -23,41 +23,65 @@ type PacketIPv4 struct {
 	Payload     []byte     // Data.
 }
 
-func ParsePacketIPv4(data []byte) *PacketIPv4 {
+func ParsePacketIPv4(data []byte, packet *PacketIPv4) *PacketIPv4 {
+	// Empty or truncated packets below minimal IPv4 header size
+	if len(data) < 20 {
+		logger.Log(logger.ERROR, "L3: Packet too short for minimal IPv4 header")
+		return nil
+	}
+
 	version := data[0] >> 4
+	if version != 4 {
+		logger.Log(logger.ERROR, fmt.Sprintf("L3: Unsupported IP version: %d", version))
+		return nil
+	}
 
 	ihl := data[0] & 0x0F     // Only the last 4 bits of the first byte of the header required.
 	headerLen := int(ihl) * 4 // Size of Header Length * 4 (for each byte)
 
+	// IHL bounds and matching wire buffer constraints
 	if ihl < 5 || len(data) < headerLen {
-		logger.Log(logger.ERROR, fmt.Sprintf("L3: Invalid IHL (< 5): %d", ihl))
+		logger.Log(logger.ERROR, fmt.Sprintf("L3: Invalid IHL (< 5) or slice smaller than header length: %d", ihl))
 		return nil
 	}
 
-	src := netip.AddrFrom4([4]byte(data[12:16]))
-	dst := netip.AddrFrom4([4]byte(data[16:20]))
+	totalLength := binary.BigEndian.Uint16(data[2:4])
 
-	packet := &PacketIPv4{
-		Version:     version,
-		IHL:         ihl,
-		TOS:         data[1],
-		Length:      binary.BigEndian.Uint16(data[2:4]),
-		ID:          binary.BigEndian.Uint16(data[4:6]),
-		Flags:       data[6] >> 5, // Only first 3 bits required.
-		FragOffset:  binary.BigEndian.Uint16(data[6:8]) << 3,
-		TTL:         data[8],
-		Protocol:    data[9],
-		Checksum:    binary.BigEndian.Uint16(data[10:12]),
-		Source:      src,
-		Destination: dst,
-		Payload:     data[20:],
+	// Index out-of-range panics before dynamic slicing
+	if len(data) < int(totalLength) {
+		logger.Log(logger.ERROR, fmt.Sprintf("L3: Truncated frame. Got %d bytes, header demands %d", len(data), totalLength))
+		return nil
 	}
+
+	if int(totalLength) < headerLen {
+		logger.Log(logger.ERROR, fmt.Sprintf("L3: Corrupt packet size. Total length %d less than header %d", totalLength, headerLen))
+		return nil
+	}
+
+	// Checksum over the explicit header window
+	if Checksum(data[0:headerLen]) != 0 {
+		logger.Log(logger.ERROR, "L3: IPv4 Header Checksum mismatch")
+		return nil
+	}
+
+	packet.Version = version
+	packet.IHL = ihl
+	packet.TOS = data[1]
+	packet.Length = totalLength
+	packet.ID = binary.BigEndian.Uint16(data[4:6])
+	packet.Flags = data[6] >> 5 // Only first 3 bits required
+	packet.FragOffset = binary.BigEndian.Uint16(data[6:8]) & 0x1FFF
+	packet.TTL = data[8]
+	packet.Protocol = data[9]
+	packet.Checksum = binary.BigEndian.Uint16(data[10:12])
+	packet.Source = netip.AddrFrom4([4]byte(data[12:16]))
+	packet.Destination = netip.AddrFrom4([4]byte(data[16:20]))
+	packet.Payload = data[headerLen:totalLength]
 
 	return packet
 }
 
-// Checksum: 32 bit variable is used to ensure that overflow is
-// tackled properly.
+// Checksum handles 16-bit word accumulations over big-endian bounds.
 func Checksum(data []byte) uint16 {
 	var sum uint32
 
