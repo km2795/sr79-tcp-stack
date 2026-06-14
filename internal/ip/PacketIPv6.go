@@ -2,6 +2,8 @@ package ip
 
 import (
 	"encoding/binary"
+	"encoding/hex"
+	"fmt"
 	"net/netip"
 )
 
@@ -33,4 +35,13 @@ func ParsePacketIPv6(data []byte, packet *PacketIPv6) *PacketIPv6 {
 	packet.Payload = data[40:]                                   // Start at byte 40
 
 	return packet
+}
+
+// PrintPacketIPv4 prints the IPv6 packet's contents.
+func PrintPacketIPv6(packet *PacketIPv6) {
+	fmt.Printf("\n--- Packet (%d bytes) ---\n", packet.PayloadLength)
+	fmt.Printf("Type: %d\n", packet.Version)
+	fmt.Printf("Source IP: %s\n", packet.Source.String())
+	fmt.Printf("Destination IP: %s\n", packet.Destination.String())
+	fmt.Printf("Payload: \n%s\n", hex.Dump(packet.Payload))
 }

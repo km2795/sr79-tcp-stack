@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	"sr79-tcp-stack/internal/driver"
@@ -44,38 +43,25 @@ func main() {
 		}
 
 		switch frame.Type {
-		// Parse the L3 datagram.
+
+		// Parse the L3 (IPv4) datagram.
 		case ethernet.FrameIPv4:
-			packet := ip.ParsePacketIPv4(frame.Payload, &packetIPv4)
-
-			if packet == nil {
-				continue
+			if ip.ParsePacketIPv4(frame.Payload, &packetIPv4) != nil {
+				ip.PrintPacketIPv4(&packetIPv4)
 			}
 
-			fmt.Printf("\n--- Packet (%d bytes) ---\n", packet.Length)
-			fmt.Printf("Type: %d\n", packet.Version)
-			fmt.Printf("Source IP: %s\n", packet.Source.String())
-			fmt.Printf("Destination IP: %s\n", packet.Destination.String())
-			fmt.Printf("Time to Live: %d\n", packet.TTL)
-			fmt.Printf("Payload: \n%s\n", hex.Dump(packet.Payload))
-
+		// Parse the L3 (IPv6) datagram.
 		case ethernet.FrameIPv6:
-			packet := ip.ParsePacketIPv6(frame.Payload, &packetIPv6)
-			if packet == nil {
-				continue
+			if ip.ParsePacketIPv6(frame.Payload, &packetIPv6) != nil {
+				ip.PrintPacketIPv6(&packetIPv6)
 			}
 
-			fmt.Printf("\n--- Packet (%d bytes) ---\n", packet.PayloadLength)
-			fmt.Printf("Type: %d\n", packet.Version)
-			fmt.Printf("Source IP: %s\n", packet.Source.String())
-			fmt.Printf("Destination IP: %s\n", packet.Destination.String())
-			fmt.Printf("Payload: \n%s\n", hex.Dump(packet.Payload))
-
+		// Parse the L2 (ARP) datagram.
 		case ethernet.FrameARP:
-			fmt.Println(" -- ARP --")
+			fmt.Println("-- ARP --")
 
 		default:
-			fmt.Printf(" unknown EtherType 0x%04x\n", frame.Type)
+			fmt.Printf("unknown EtherType 0x%04x\n", frame.Type)
 		}
 
 	}

@@ -2,6 +2,7 @@ package ip
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"net/netip"
 	"sr79-tcp-stack/logger"
@@ -108,4 +109,14 @@ func Checksum(data []byte) uint16 {
 		sum = (sum & 0xffff) + (sum >> 16)
 	}
 	return ^uint16(sum)
+}
+
+// PrintPacketIPv4 prints the IPv4 packet's contents.
+func PrintPacketIPv4(packet *PacketIPv4) {
+	fmt.Printf("\n--- Packet (%d bytes) ---\n", packet.Length)
+	fmt.Printf("Type: %d\n", packet.Version)
+	fmt.Printf("Source IP: %s\n", packet.Source.String())
+	fmt.Printf("Destination IP: %s\n", packet.Destination.String())
+	fmt.Printf("Time to Live: %d\n", packet.TTL)
+	fmt.Printf("Payload: \n%s\n", hex.Dump(packet.Payload))
 }
