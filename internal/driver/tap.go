@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"unsafe"
 
-	"golang.org/x/sys/unix"
 	"sr79-tcp-stack/logger"
+
+	"golang.org/x/sys/unix"
 )
 
 // Interface Flags (NIC settings).
@@ -64,6 +66,29 @@ func OpenTAP(name string) (*TAP, error) {
 	ifName := string(bytes.Trim(req.Name[:], "\x00"))
 
 	return &TAP{file: f, Name: ifName}, nil
+}
+
+// setupTAPInterface configures the interface.
+func SetupTAPInterface(tapName string) (*TAP, error) {
+	tap, err := OpenTAP(tapName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open TAP: %w", err)
+	}
+
+	// Initialize the Interface.
+	if err := exec.Command("ip", "link", "set", tap.Name, "up").Run(); err != nil {
+		tap.Close()
+		return nil, fmt.Errorf("failed to bring up link: %w", err)
+	}
+
+	// Assign the Initialized Interface an IP.
+	if err := exec.Command("ip", "addr", "add", "10.0.0.1/24", "dev", tap.Name).Run(); err != nil {
+		tap.Close()
+		return nil, fmt.Errorf("failed to assign IP: %w", err)
+	}
+
+	logger.Log(logger.INFO, fmt.Sprintf("TAP Interface (%s) Setup Successfully", tap.Name))
+	return tap, nil
 }
 
 func (t *TAP) Read(buf []byte) (int, error) {

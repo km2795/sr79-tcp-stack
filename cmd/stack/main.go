@@ -3,8 +3,6 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
-	"os"
-	"os/exec"
 
 	"sr79-tcp-stack/internal/driver"
 	"sr79-tcp-stack/internal/ethernet"
@@ -12,47 +10,26 @@ import (
 	"sr79-tcp-stack/logger"
 )
 
-// setupTAPInterface configures the interface.
-func setupTAPInterface(tapName string) (*driver.TAP, error) {
-	tap, err := driver.OpenTAP(tapName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open TAP: %w", err)
-	}
-
-	// Initialize the Interface.
-	if err := exec.Command("ip", "link", "set", tap.Name, "up").Run(); err != nil {
-		tap.Close()
-		return nil, fmt.Errorf("failed to bring up link: %w", err)
-	}
-
-	// Assign the Initialized Interface an IP.
-	if err := exec.Command("ip", "addr", "add", "10.0.0.1/24", "dev", tap.Name).Run(); err != nil {
-		tap.Close()
-		return nil, fmt.Errorf("failed to assign IP: %w", err)
-	}
-
-	logger.Log(logger.INFO, fmt.Sprintf("TAP Interface (%s) Setup Successfully", tap.Name))
-	return tap, nil
-}
-
 func main() {
 	logger.StartLogger()
 	defer logger.StopLogger()
 
 	// Setup the interface
-	tap, err := setupTAPInterface("tap0")
+	tap, err := driver.SetupTAPInterface("tap0")
 	if err != nil {
-		logger.Log(logger.FATAL, fmt.Sprintf("Setup failed.: %v", err))
-		fmt.Fprintf(os.Stderr, "Initialization Error: %v", err)
+		logger.Log(logger.FATAL, fmt.Sprintf("Initialization Error: %v", err))
 		return
 	}
 
 	// Cleanup.
 	defer tap.Close()
 
+	var frame ethernet.Frame
+
 	// Buffer for packet.
 	buf := make([]byte, 2048)
-	var packet ip.PacketIPv4
+	var packetIPv4 ip.PacketIPv4
+	var packetIPv6 ip.PacketIPv6
 
 	for {
 		n, err := tap.Read(buf)
@@ -61,16 +38,15 @@ func main() {
 			continue
 		}
 
-		frame, err := ethernet.ParseFrame(buf[:n])
-		if err != nil {
-			logger.Log(logger.ERROR, fmt.Sprintf("%v\n", err))
+		// Parse the L2 frame.
+		if ethernet.ParseFrame(buf[:n], &frame) == nil {
 			continue
 		}
 
 		switch frame.Type {
-		// IPv4 datagrams.
-		case uint16(ethernet.FrameIPv4):
-			packet := ip.ParsePacketIPv4(frame.Payload, &packet)
+		// Parse the L3 datagram.
+		case ethernet.FrameIPv4:
+			packet := ip.ParsePacketIPv4(frame.Payload, &packetIPv4)
 
 			if packet == nil {
 				continue
@@ -83,8 +59,8 @@ func main() {
 			fmt.Printf("Time to Live: %d\n", packet.TTL)
 			fmt.Printf("Payload: \n%s\n", hex.Dump(packet.Payload))
 
-		case uint16(ethernet.FrameIPv6):
-			packet := ip.ParsePacketIPv6(frame.Payload)
+		case ethernet.FrameIPv6:
+			packet := ip.ParsePacketIPv6(frame.Payload, &packetIPv6)
 			if packet == nil {
 				continue
 			}
@@ -95,7 +71,7 @@ func main() {
 			fmt.Printf("Destination IP: %s\n", packet.Destination.String())
 			fmt.Printf("Payload: \n%s\n", hex.Dump(packet.Payload))
 
-		case uint16(ethernet.FrameARP):
+		case ethernet.FrameARP:
 			fmt.Println(" -- ARP --")
 
 		default:
