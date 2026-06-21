@@ -91,6 +91,10 @@ func SetupTAPInterface(tapName string) (*TAP, error) {
 	return tap, nil
 }
 
+func (t *TAP) GetFd() int {
+	return int(t.file.Fd())
+}
+
 func (t *TAP) Read(buf []byte) (int, error) {
 	return t.file.Read(buf)
 }
