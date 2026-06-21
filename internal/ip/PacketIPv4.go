@@ -8,6 +8,8 @@ import (
 	"sr79-tcp-stack/logger"
 )
 
+const HeaderLength = 20
+
 type PacketIPv4 struct {
 	Version     uint8      // (4): Format of the Internet Header (4)
 	IHL         uint8      // (4): Internet Header Length
@@ -82,6 +84,45 @@ func ParsePacketIPv4(data []byte, packet *PacketIPv4) *PacketIPv4 {
 	return packet
 }
 
+// Marshal serializes the PacketIPv4 struct into a pre-allocated byte slice.
+// It returns the number of bytes written.
+func (pkt *PacketIPv4) Marshal(buf []byte) int {
+	if len(buf) < HeaderLength {
+		return 0
+	}
+
+	// 1. Pack Version (4) and IHL (5) into a single byte (0x45)
+	buf[0] = (4 << 4) | 5
+	buf[1] = pkt.TOS
+
+	// 2. Pack Length, ID, and Fragmentation Flags
+	binary.BigEndian.PutUint16(buf[2:4], pkt.Length)
+	binary.BigEndian.PutUint16(buf[4:6], pkt.ID)
+
+	// Combines the 3-bit flags with the 13-bit fragment offset
+	flagsAndOffset := (uint16(pkt.Flags&0x07) << 13) | (pkt.FragOffset & 0x1FFF)
+	binary.BigEndian.PutUint16(buf[6:8], flagsAndOffset)
+
+	// 3. Pack TTL and Protocol
+	buf[8] = pkt.TTL
+	buf[9] = pkt.Protocol
+
+	// 4. Clear Checksum slots for calculation
+	binary.BigEndian.PutUint16(buf[10:12], 0)
+
+	// 5. Fast copy the 4-byte IPv4 addresses
+	// Ensure we take the 4-byte representation of the net.IP slice
+	copy(buf[12:16], pkt.Source.AsSlice())
+	copy(buf[16:20], pkt.Destination.AsSlice())
+
+	// 6. Compute the Internet Checksum over ONLY the 20-byte header block
+	// We reuse your excellent checksum math helper function here
+	headerChecksum := Checksum(buf[:HeaderLength])
+	binary.BigEndian.PutUint16(buf[10:12], headerChecksum)
+
+	return HeaderLength
+}
+
 // Checksum handles 16-bit word accumulations over big-endian bounds.
 func Checksum(data []byte) uint16 {
 	var sum uint32
@@ -114,7 +155,7 @@ func Checksum(data []byte) uint16 {
 // PrintPacketIPv4 prints the IPv4 packet's contents.
 func PrintPacketIPv4(packet *PacketIPv4) {
 	fmt.Printf("\n--- Packet (%d bytes) ---\n", packet.Length)
-	fmt.Printf("Type: %d\n", packet.Version)
+	fmt.Printf("Version: %d\n", packet.Version)
 	fmt.Printf("Source IP: %s\n", packet.Source.String())
 	fmt.Printf("Destination IP: %s\n", packet.Destination.String())
 	fmt.Printf("Time to Live: %d\n", packet.TTL)
