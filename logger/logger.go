@@ -18,6 +18,8 @@ const (
 	ALERT LogLevel = "ALERT"
 	ERROR LogLevel = "ERROR"
 	FATAL LogLevel = "FATAL"
+	WARN  LogLevel = "WARN"
+	DEBUG LogLevel = "DEBUG"
 )
 
 type LogEntry struct {
